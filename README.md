@@ -14,8 +14,8 @@ This exploratory data analysis project aims to examine the relationship between 
 
 These questions guided the exploration and provided insights into the dynamics of house prices in relation to population changes across different time periods and geographic regions.
 
-### Dataset:
-------------
+### Data:
+---------
 
 We have access to the following data for conducting the analysis:
 
