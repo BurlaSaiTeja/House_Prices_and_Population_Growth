@@ -1,0 +1,964 @@
+---
+title: "Mini Project - Sai Teja Burla - Team Vermont :)"
+output: html_notebook
+---
+
+### Importing Libraries
+
+```{r}
+library("ggpubr")
+library("gridExtra")
+library("tidyverse")
+library("ggplot2")
+library("ggridges")
+library("tidyr")
+library("readxl")
+library("stringr")
+library("ggrepel")
+library("gridExtra")
+library("patchwork")
+library("viridis")
+library("broom")
+```
+
+### Importing House Price Index Data and Perform some Preprocessing 
+
+```{r}
+House.Price.Index <- read_excel("State_and_US_SA.xls", skip = 5)
+House.Price.Index <- head(House.Price.Index, - 16) 
+House.Price.Index <- 
+  data.frame(House.Price.Index %>% 
+  dplyr::rename("Date" = "Month") %>% 
+  separate_wider_position("Date", c("Year" = 4, "Period" = 3)) %>%
+  mutate_at("Year", as.integer) %>%
+  mutate_at("AK", as.double)) %>% 
+  select(-United.States.seasonally.adjusted)
+House.Price.Index
+```
+
+### Importing State Region Details
+
+```{r}
+State.Region.Details <- read.table("state_abbrevs.txt", sep = " ", header = TRUE)
+State.Region.Details
+```
+
+### Importing Consumer Price Index Data
+
+```{r}
+Consumer.Price.Index <- read.csv("cpi.csv", header = TRUE) %>% select(-Series.ID, -Label)
+Consumer.Price.Index
+```
+
+
+```{r}
+Census <- read.csv("combinedcensuspop.csv", header = TRUE) %>%
+  select(-GISJOIN, -STATEFP, -STATENH, -NAME) %>%
+  filter(YEAR >= 1975 & YEAR <= 2019) %>%
+  filter(STATE != 'Puerto Rico') %>%
+  filter(STATE != 'District of Columbia') %>%
+  dplyr::rename("State" = "STATE", "Population" = "A00AA", "Year" = "YEAR")
+Census
+```
+
+
+### Importing Census Data for the Year 1990
+
+```{r}
+Census.1990 <- read.csv("combinedcensuspop.csv", header = TRUE) %>% 
+  filter(YEAR == 1990) %>% 
+  select(-GISJOIN, -YEAR, -STATEFP, -STATENH, -NAME) %>%
+  dplyr::rename("State" = "STATE", "Population" = "A00AA")
+Census.1990
+```
+
+### Importing Census Data for the Year 2000
+
+```{r}
+Census.2000 <- read.csv("combinedcensuspop.csv", header = TRUE) %>% 
+  filter(YEAR == 2000) %>% 
+  select(-GISJOIN, -YEAR, -STATEFP, -STATENH, -NAME) %>%
+  dplyr::rename("State" = "STATE", "Population" = "A00AA")
+Census.2000
+```
+
+### Importing Census Data for the Year 2010
+
+```{r}
+Census.2010 <- read.csv("combinedcensuspop.csv", header = TRUE) %>% 
+  filter(YEAR == 2010) %>% 
+  select(-GISJOIN, -YEAR, -STATEFP, -STATENH, -NAME) %>%
+  dplyr::rename("State" = "STATE", "Population" = "A00AA")
+Census.2010
+```
+
+### Importing Census Data for the Year 2019
+
+```{r}
+Census.2019 <- read.table("censuspop2019.txt", sep = " ", header = TRUE) %>% 
+  filter(variable == "POP") %>% 
+  select(-GEOID, -variable) %>%
+  dplyr::rename("State" = "NAME", "Population" = "value")
+Census.2019 <- head(Census.2019, 51)
+Census.2019
+```
+
+### Importing Density Data for the Year 2019
+
+```{r}
+Density.2019 <- read.table("censuspop2019.txt", sep = " ", header = TRUE) %>% 
+  filter(variable == "DENSITY") %>% 
+  select(-GEOID, -variable) %>%
+  dplyr::rename("State" = "NAME", "Density" = "value") 
+Density.2019 <- head(Density.2019, 51)
+Density.2019$Density = round(Density.2019$Density, 2)
+Density.2019
+```
+
+```{r}
+Combined.2019 <- Census.2019 %>% 
+  inner_join(Density.2019, by = join_by(State == State))
+Combined.2019
+```
+
+
+### Importing Data for the Year 1975
+
+```{r}
+Combined.1975 <- read.csv("Density1975 - Density1975.csv", header = TRUE) #%>% dplyr::rename("Population.1975" = "Population", "Density.1975" = "Density")
+Combined.1975$Density = round((Combined.1975$Density * 100.01) / 99.9, 2)
+Combined.1975
+```
+
+```{r}
+Census.1975 <- Combined.1975 %>% select(-Density)
+Census.1975
+```
+
+
+### Calculating approximate areas and population densities for intermediate years
+
+```{r}
+Approximate.Areas <- Combined.2019 %>% filter(State != 'District of Columbia')
+Approximate.Areas$Area = round(Approximate.Areas$Population / Approximate.Areas$Density, 2)
+Approximate.Areas <- Approximate.Areas %>% select(-Population, -Density)
+Approximate.Areas
+```
+
+```{r}
+Density.census <- 
+  left_join(Census, Approximate.Areas, by = join_by(State == State))
+Density.census$Density = Density.census$Population / Density.census$Area
+Density.census <- Density.census %>%
+  select(-Area)
+Density.census
+```
+
+```{r}
+Combined.1975$Year = as.integer(1975)
+Combined.2019$Year = as.integer(2019)
+Density.census <- rbind(Combined.1975, Density.census, Combined.2019)
+Density.census$Density <- round(Density.census$Density, 2)
+Density.census <- Density.census %>%
+  inner_join(Combined.1975 %>% select(-Year), by = join_by(State == State))
+Density.census
+```
+
+```{r}
+Density.census <- Density.census %>%
+  inner_join(State.Region.Details, by = join_by(State == State)) %>%
+  dplyr::rename("Density" = "Density.x", "Population" = "Population.x")
+Density.census
+```
+
+```{r}
+Density.census$Population_Diff = Density.census$Population - Density.census$Population.y
+Density.census$Population_Ratio = round(Density.census$Population / Density.census$Population.y, 2)
+Density.census$Density_Diff = Density.census$Density - Density.census$Density.y
+Density.census$Density_Ratio = round(Density.census$Density / Density.census$Density.y, 2)
+Density.census
+```
+
+```{r}
+Density.census <-
+  Density.census %>%
+  select(-Population.y, -Density.y)
+Density.census
+```
+
+
+## Question - 1
+
+```{r}
+houses_long <- data.frame(gather(House.Price.Index, key="State", value="House.Prices", 3:53))
+House_Price_Data <- 
+  data.frame(houses_long %>%
+  inner_join(Consumer.Price.Index, by = c("Year", "Period")) %>%
+  dplyr::rename("CPI.Values" = "Value"))
+House_Price_Data
+```
+
+```{r}
+compare_2019_1975 <- 
+  data.frame(House_Price_Data %>%
+  left_join(State.Region.Details, by = join_by(State == Code)) %>%
+  dplyr::rename("Code" = "State", "State" = "State.y"))
+compare_2019_1975$Adjusted.House.Prices = (compare_2019_1975$House.Prices/compare_2019_1975$CPI.Values) * 100
+compare_2019_1975$State <- replace(compare_2019_1975$State, is.na(compare_2019_1975$State), "US Adjusted Avg.")
+compare_2019_1975$Region <- replace(compare_2019_1975$Region, is.na(compare_2019_1975$Region), "US Adjusted Avg.")
+compare_2019_1975
+```
+
+```{r, fig.height=5, fig.width=12}
+ggplot(data = compare_2019_1975) +
+  geom_point(aes(x = Period, y = Adjusted.House.Prices, color=State), size = 0.3, alpha=0.3) +
+  facet_grid(~ Year, shrink = TRUE) +
+  scale_color_discrete(guide = "none") +
+  theme_classic() +
+  ggtitle("House Prices (1975 - 2019) for All States") +
+  xlab("Time Period (Years)") + ylab("Adjusted House Prices") +
+  labs(subtitle = "General trends in house prices (adjusted for inflation) for all states") +
+  theme(strip.text = element_text(angle = 90, hjust = 0.5, size = 7), axis.text.x = element_blank(), panel.spacing = unit(0.0, "lines")) 
+```
+
+```{r}
+grouped_year <-
+  data.frame(compare_2019_1975 %>%
+  dplyr::group_by(Year, Code, Region, State) %>%
+  dplyr::summarise(Average.House.Prices = mean(Adjusted.House.Prices), .groups = "keep"))
+grouped_year
+```
+
+```{r}
+Density.census <- Density.census %>%
+  inner_join(grouped_year %>% select(-Code, -Region), by = join_by(Year == Year, State == State))
+Density.census
+```
+
+```{r}
+P.1975 <- Density.census %>%
+  filter(Year == 1975) %>%
+  select(State, Average.House.Prices) %>%
+  dplyr::rename("hp1975" = "Average.House.Prices")
+Density.census <- Density.census %>%
+  left_join(P.1975, by = join_by(State == State))
+Density.census
+```
+
+```{r}
+Density.census$Price_Diff = Density.census$Average.House.Prices - Density.census$hp1975
+Density.census$Price_Ratio = Density.census$Average.House.Prices / Density.census$hp1975
+Density.census <- Density.census %>% select(-hp1975)
+Density.census
+```
+
+
+```{r, fig.height=8, fig.width=14}
+ggplot(data = grouped_year %>% filter(State != 'District of Columbia')) +
+  geom_smooth(method = 'lm', formula = y~x, se = FALSE, color = 'darkgrey', linewidth = 0.4, aes(x = Year, y = Average.House.Prices)) +
+  geom_line(stat = 'identity', aes(x = Year, y = Average.House.Prices, color = Region)) +
+  facet_wrap(~State, ncol = 10) +
+  theme_classic() +
+  ggtitle("House Prices (1975 - 2019) for All States") +
+  xlab("Time Period (Years)") + ylab("Adjusted Average House Prices") +
+  labs(subtitle = "Trends in house prices (adjusted for inflation) faceted by state") +
+  theme(strip.text = element_text(size = 8), axis.text.x = element_blank(), axis.text.y = element_blank(), panel.spacing = unit(0.1, "lines"))
+```
+
+```{r}
+temp <- grouped_year %>%
+  filter(Year == 1975) %>%
+  select(State, Average.House.Prices) %>%
+  dplyr::rename('1975.Prices' = 'Average.House.Prices')
+gy <- left_join(grouped_year, temp, by = join_by(State == State))
+gy
+```
+
+```{r, fig.height=12, fig.width=12}
+ggplot(data = gy %>% filter(State != "District of Columbia"), aes(x = Year, y = Average.House.Prices - `1975.Prices`)) +
+  geom_smooth(method = 'lm', formula = y~x, se = FALSE, color = 'darkgrey', linetype = "dashed", linewidth = 1) +
+  geom_line(stat = 'identity', aes(color = State)) +
+  geom_hline(yintercept = 0, color = 'black') +
+  facet_wrap(~Region, ncol = 1) +
+  scale_color_discrete(guide = "none") +
+  theme_classic() +
+  ggtitle("House Prices (1975 - 2019) for All States") +
+  xlab("Time Period (Years)") + ylab("Difference in House Prices") +
+  labs(subtitle = "Differences in house prices (adjusted for inflation) from 1975 for all states faceted by region") +
+  theme(strip.text = element_text(size = 6), axis.text.x = element_blank(), panel.spacing = unit(0.1, "lines"))
+```
+
+
+```{r, fig.height=12, fig.width=13}
+ggplot(data = grouped_year %>% filter(State != "District of Columbia"), aes(x = Year, y = Average.House.Prices)) +
+  geom_smooth(method = 'lm', formula = y~x, se = FALSE, color = 'darkgrey', linetype = "dashed", linewidth = 1) +
+  geom_line(stat = 'identity', aes(color = State)) +
+  facet_wrap(~Region, ncol = 1) +
+  scale_color_discrete(guide = "none") +
+  theme_classic() +
+  ggtitle("House Prices (1975 - 2019) for All States") +
+  xlab("Time Period (Years)") + ylab("Adjusted Average House Prices") +
+  labs(subtitle = "Trends in house prices (adjusted for inflation) for all states faceted by region") +
+  theme(strip.text = element_text(size = 6), axis.text.x = element_blank(), panel.spacing = unit(0.1, "lines"))
+```
+
+```{r}
+grouped_region <-
+  data.frame(compare_2019_1975 %>% filter(State != "District of Columbia") %>%
+  dplyr::group_by(Year, Region) %>%
+  dplyr::summarise(Average.House.Prices = mean(Adjusted.House.Prices), .groups = "keep"))
+grouped_region
+```
+
+```{r, fig.height=3, fig.width=6}
+ggplot(data = grouped_region, aes(x = Year, y = Average.House.Prices, color=Region)) +
+  geom_smooth(method = 'lm', formula = y~x, se = FALSE, color = 'darkgrey', linetype = "dashed", linewidth = 1) +
+  geom_line(stat = "identity", alpha=0.6) +
+  theme_classic() +
+  ggtitle("House Prices (1975 - 2019) for All Regions") +
+  xlab("Time Period (Years)") + ylab("Adjusted Average House Prices") +
+  labs(subtitle = "Trends in average house prices (adjusted for inflation) grouped by region") +
+  theme(strip.text = element_text(angle = 45, hjust = 0.5, size = 6), panel.spacing = unit(0.0, "lines"))
+```
+
+```{r}
+grouped_region_t <-
+  data.frame(gy %>% filter(State != "District of Columbia") %>%
+  dplyr::group_by(Year, Region) %>%
+  dplyr::summarise(Average.House.Prices = mean(Average.House.Prices), Prices.1975 = mean(`1975.Prices`), .groups = "keep"))
+grouped_region_t
+```
+
+```{r, fig.height=3, fig.width=6}
+ggplot(data = grouped_region_t, aes(x = Year, y = Average.House.Prices - Prices.1975, color=Region)) +
+  geom_smooth(method = 'lm', formula = y~x, se = FALSE, color = 'darkgrey', linetype = "dashed", linewidth = 1) +
+  geom_hline(yintercept = 0, color = 'black') +
+  geom_line(stat = "identity", alpha=0.6) +
+  theme_classic() +
+  ggtitle("House Prices (1975 - 2019) for All Regions") +
+  xlab("Time Period (Years)") + ylab("Difference in House Prices") +
+  labs(subtitle = "DIference in average house prices from 1975 to 2019 grouped by region") +
+  theme(strip.text = element_text(angle = 45, hjust = 0.5, size = 6), panel.spacing = unit(0.0, "lines"))
+```
+
+```{r}
+grouped_region_wide <- 
+  grouped_region %>%
+  pivot_wider(names_from = Year, values_from = Average.House.Prices)
+grouped_region_wide$Price.Difference = grouped_region_wide$'2019' - grouped_region_wide$'1975'
+grouped_region_wide <- 
+  grouped_region_wide %>%
+  arrange(Price.Difference)
+grouped_region_wide
+```
+
+```{r}
+ggplot(data = grouped_region_wide %>% filter(Region != "US Adjusted Avg."), aes(x = Region, y = Price.Difference, fill=Region)) +
+  geom_bar(stat = "identity", alpha=0.6) +
+  theme_classic() +
+  ggtitle("House Prices (1975 - 2019) for All Regions") +
+  xlab("Region") + ylab("Price Difference") +
+  labs(subtitle = "Difference in average house prices for each region from 1975 to 2019")
+```
+
+```{r}
+grouped_year_wide <- 
+  grouped_year %>%
+  pivot_wider(names_from = Year, values_from = Average.House.Prices)
+grouped_year_wide$Price.Difference = grouped_year_wide$'2019' - grouped_year_wide$'1975'
+grouped_year_wide <- 
+  grouped_year_wide %>%
+  arrange(Price.Difference) %>%
+  filter(State != 'District of Columbia')
+grouped_year_wide
+```
+
+```{r}
+most_price_increase <- tail(grouped_year_wide, 10)
+most_price_drop <- head(grouped_year_wide, 10)
+most_price_increase$var = "Price Increase"
+most_price_drop$var = "Price Decrease"
+price_change = rbind(head(most_price_drop, 5), tail(most_price_increase, 5))
+price_change
+```
+
+```{r, fig.height=5, fig.width=12}
+bp1 <- ggplot(data = head(most_price_drop, 5), aes(x = State, y = Price.Difference)) +
+  geom_bar(stat = "identity", fill = "darkblue", alpha = 0.7) +
+  geom_label_repel(aes(label = round(Price.Difference, 2)), nudge_x = -0.1, size = 3) +
+  theme_classic() +
+  ggtitle("Least Price Change") +
+  xlab("State") + ylab("Price Difference") +
+  labs(subtitle = "States with the lowest (most negative) price change between 1975 and 2019")
+bp2 <- ggplot(data = tail(most_price_increase, 5), aes(x = State, y = Price.Difference)) +
+  geom_bar(stat = "identity", fill = "darkgreen", alpha = 0.7) +
+  geom_label_repel(aes(label = round(Price.Difference, 2)), nudge_x = 0.1, size = 3) +
+  theme_classic() +
+  ggtitle("Most Price Change") +
+  xlab("State") + ylab("Price Difference") +
+  labs(subtitle = "States with the highest (most positive) price change between 1975 and 2019")
+grid.arrange(bp1, bp2, ncol = 2)
+```
+
+## Question - 2
+
+```{r}
+Combined.2019 <- Census.2019 %>% 
+  inner_join(Density.2019, by = join_by(State == State)) %>% 
+  inner_join(grouped_year %>% filter(Year == 2019) %>% select(State, Average.House.Prices), by = join_by(State == State))
+Combined.2019$Year = 2019
+Combined.2019 <- Combined.2019 %>%
+  filter(State != 'District of Columbia')
+Combined.2019
+```
+
+```{r}
+Combined <-
+  Combined.2019 %>%
+  dplyr::rename("Population.2019" = "Population", "Density.2019" = "Density", "Prices.2019" = "Average.House.Prices") %>%
+  inner_join(Combined.1975, by = join_by(State == State)) %>%
+  inner_join(grouped_year %>% filter(Year == 1975) %>% select(State, Average.House.Prices), by = join_by(State == State)) %>%
+  dplyr::rename("Population.1975" = "Population", "Density.1975" = "Density", "Prices.1975" = "Average.House.Prices") %>%
+  select(-Year.x, -Year.y) %>%
+  inner_join(State.Region.Details, by = join_by(State == State))
+Combined$Price.Diff = Combined$Prices.2019 - Combined$Prices.1975
+Combined$Density.Diff = Combined$Density.2019 - Combined$Density.1975
+Combined$Population.Diff = Combined$Population.2019 - Combined$Population.1975
+Combined
+```
+
+```{r}
+a <- grouped_year %>%
+  filter(Year == 1975) %>%
+  select(Year, State, Average.House.Prices) %>%
+  inner_join(Combined.1975 %>% select(-Year), by = join_by(State == State))
+b <-
+  Combined.2019 %>%
+  select(Year, State, Average.House.Prices, Population, Density)
+Combined_long <- rbind(a, b) %>% 
+  filter(State != "District of Columbia") %>% 
+  dplyr::rename("Price" = "Average.House.Prices") %>% 
+  mutate_at("Year", as.character) %>%
+  inner_join(State.Region.Details, by = join_by(State == State))
+Combined_long
+```
+
+```{r, fig.height=6, fig.width=12, warning=FALSE}
+ggplot(data = Combined, aes(x = Density.Diff, y = Price.Diff, size = Population.Diff, color = State)) +
+  geom_smooth(method = 'lm', formula = y~x, color = 'darkgrey', alpha = 0.4, linetype = 'dashed', linewidth = 1, se = FALSE) +
+  geom_point(alpha = 0.5) + 
+  scale_size_continuous(guide = "none") +
+  scale_color_discrete(guide = "none") +
+  geom_label_repel(aes(label = Code), nudge_x = 0.1, nudge_y = 0.1, size = 2, max.overlaps = 20) +
+  theme_classic() +
+  ggtitle("Trend Between Density and House Prices") +
+  xlab("Difference in Density") + ylab("Price Difference") +
+  labs(subtitle = "Scatterplot explaining the relationship between the difference in densities and the change in house prices between 1975 and 2019")
+```
+
+```{r, fig.height=6, fig.width=12, warning=FALSE}
+ggplot(data = Combined, aes(x = Density.Diff, y = Price.Diff, size = Population.Diff, color = State)) +
+  geom_smooth(method = 'lm', formula = y~x, color = 'darkgrey', alpha = 0.4, linetype = 'dashed', linewidth = 1, se = FALSE) +
+  geom_point(alpha = 0.5) + 
+  scale_size_continuous(guide = "none") +
+  scale_color_discrete(guide = "none") +
+  geom_label_repel(aes(label = Code), nudge_x = 0.1, nudge_y = 0.1, size = 2, max.overlaps = 20) +
+  facet_wrap(~Region, nrow = 2) +
+  theme_classic() +
+  ggtitle("Trend Between Density and House Prices") +
+  xlab("Difference in Density") + ylab("Price Difference") +
+  labs(subtitle = "Scatterplot explaining the relationship between the difference in densities and the change in house prices between 1975 and 2019 for each region") +
+  theme(strip.text = element_text(size = 8), panel.spacing = unit(1, "lines"))
+```
+
+```{r, fig.height=6, fig.width=12, warning=FALSE}
+ggplot(data = Combined, aes(x = log((Density.2019/Density.1975)), y = log((Prices.2019/Prices.1975)), size = (Population.2019/Population.1975), color = State)) +
+  geom_hline(yintercept = 0, color = 'black', linetype = 'dotted', linewidth = 0.4) +
+  geom_vline(xintercept = 0, color = 'black', linetype = 'dotted', linewidth = 0.4) +
+  geom_smooth(method = 'lm', formula = y~x, color = 'darkgrey', alpha = 0.4, linetype = 'dashed', linewidth = 1, se = FALSE) +
+  geom_point(alpha = 0.5) + 
+  scale_size_continuous(guide = "none") +
+  scale_color_discrete(guide = "none") +
+  geom_label_repel(aes(label = Code), nudge_x = 0.01, nudge_y = 0.01, size = 2, max.overlaps = 20) +
+  theme_classic() +
+  ggtitle("Trend Between Density and House Prices") +
+  xlab("Proportion of Density (log scale)") + ylab("Proportion of Price (log scale)") +
+  labs(subtitle = "Scatterplot explaining the relationship between the proportional change in densities and the proportional change in house prices between 1975 and 2019")
+```
+
+```{r, fig.height=6, fig.width=12, warning=FALSE}
+ggplot(data = Combined, aes(x = log((Density.2019/Density.1975)), y = log((Prices.2019/Prices.1975)), size = (Population.2019/Population.1975), color = State)) +
+  geom_hline(yintercept = 0, color = 'black', linetype = 'dotted', linewidth = 0.4) +
+  geom_vline(xintercept = 0, color = 'black', linetype = 'dotted', linewidth = 0.4) +
+  geom_smooth(method = 'lm', formula = y~x, color = 'darkgrey', alpha = 0.4, linetype = 'dashed', linewidth = 1, se = FALSE) +
+  geom_point(alpha = 0.5) + 
+  scale_size_continuous(guide = "none") +
+  scale_color_discrete(guide = "none") +
+  geom_label_repel(aes(label = Code), nudge_x = 0.1, nudge_y = 0.1, size = 2, max.overlaps = 20) +
+  facet_wrap(~Region, nrow = 2) +
+  theme_classic() +
+  ggtitle("Trend Between Density and House Prices") +
+  xlab("Proportion of Density (log scale)") + ylab("Proportion of Price (log scale)") +
+  labs(subtitle = "Scatterplot explaining the relationship between the proportional change in densities and the proportional change in house prices between 1975 and 2019 faceted by region") +
+  theme(strip.text = element_text(size = 8), panel.spacing = unit(1, "lines"))
+```
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = Density.census %>% filter(Year != 1975), aes(x = log(Density_Ratio), y = log(Price_Ratio), color = Code, )) +
+  geom_point(alpha = 0.4) + 
+  geom_hline(yintercept = 0, color = 'black', linetype = 'dotted', linewidth = 0.4) +
+  geom_vline(xintercept = 0, color = 'black', linetype = 'dotted', linewidth = 0.4) +
+  geom_smooth(method = 'lm', color = 'black', se = FALSE, linewidth = 0.6) +
+  #geom_label_repel(aes(label = Code, color = Code), size = 2, max.overlaps = 50) +
+  scale_color_discrete(guide = "none") +
+  facet_grid(Region~Year) + 
+  theme_bw() +
+  ggtitle("Trend Between Density and House Prices") +
+  xlab("Proportion of Density (log scale)") + ylab("Proportion of Price (log scale)") +
+  labs(subtitle = "Proportional change in densities and the proportional change in house prices between 1975 and 2019 faceted by region and year") +
+  theme(panel.grid = element_blank())
+```
+
+```{r, fig.height=3, fig.width=14}
+ggplot(data = Density.census, aes(x = Density, y = Average.House.Prices, color = Region)) +
+  geom_point(alpha = 0.4) + 
+  #geom_hline(yintercept = 1, color = 'darkgray', linetype = 'dashed', linewidth = 0.4) +
+  #geom_vline(xintercept = 1, color = 'darkgray', linetype = 'dashed', linewidth = 0.4) +
+  geom_smooth(method = 'lm', color = 'black', se = FALSE, linewidth = 0.6) +
+  #geom_label_repel(aes(label = Code, color = Code), size = 2, max.overlaps = 50) +
+  #scale_color_discrete(guide = "none") +
+  facet_grid(~Year) + 
+  theme_bw() +
+  ggtitle("Trend Between Density and House Prices") +
+  xlab("Population Density") + ylab("Average House Prices") +
+  labs(subtitle = "Proportional change in densities and the proportional change in house prices across decades between 1975 and 2019 faceted by region") +
+  theme(panel.grid = element_blank())
+```
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = Density.census, aes(x = Year, y = log(Price_Ratio), color = log(Density_Ratio))) +
+  geom_line(linewidth = 1) +
+  scale_color_distiller(name = 'Proportion of Density', palette = "YlOrRd") +
+  facet_wrap(~State, nrow = 5) + 
+  theme_bw() +
+  ggtitle("Trend Between Density and House Prices") +
+  xlab("Years") + ylab("Proportion of Price (log scale)") +
+  labs(subtitle = "Scatterplot explaining the relationship between the proportional change in densities and the proportional change in house prices between 1975 and 2019 faceted by region") +
+  theme(panel.grid = element_blank(), axis.text.x = element_text(hjust = 1, angle = 45))
+```
+
+## Question - 3
+
+### Year Range - 1990 to 2000
+
+```{r}
+a1 <- 
+  rbind(
+    (grouped_year %>%
+    filter(Year == 1990) %>%
+    inner_join(Census.1990, by = join_by(State == State))),
+    (grouped_year %>%
+    filter(Year == 2000) %>%
+    inner_join(Census.2000, by = join_by(State == State)))) %>%
+    select(-Average.House.Prices) %>%
+    pivot_wider(names_from = Year, values_from = Population) %>%
+    dplyr::rename("Population.1990" = "1990", "Population.2000" = "2000")
+b1 <-
+  rbind(
+    (grouped_year %>%
+    filter(Year == 1990) %>%
+    inner_join(Census.1990, by = join_by(State == State))),
+    (grouped_year %>%
+    filter(Year == 2000) %>%
+    inner_join(Census.2000, by = join_by(State == State)))) %>%
+    select(-Population) %>%
+    pivot_wider(names_from = Year, values_from = Average.House.Prices) %>%
+    dplyr::rename("Average.House.Price.1990" = "1990", "Average.House.Price.2000" = "2000")
+Values.1990.2000 <-
+  a1 %>% 
+  inner_join(b1, by = join_by(State)) %>% 
+  select(-Code.y, -Region.y) %>% 
+  dplyr::rename("Code" = "Code.x", "Region" = "Region.x") %>%
+  filter(State != "District of Columbia")
+Values.1990.2000
+```
+
+```{r, fig.height=5, fig.width=12}
+Values.1990.2000 <- 
+  Values.1990.2000 %>%
+  arrange(Average.House.Price.2000 - Average.House.Price.1990)
+
+bp3 <- ggplot(data = head(Values.1990.2000, 5), aes(x = State, y = ((Average.House.Price.2000 - Average.House.Price.1990)/Average.House.Price.1990)*100)) +
+  geom_bar(stat = "identity", fill = "darkblue", alpha = 0.7) +
+  geom_label_repel(aes(label = round(((Average.House.Price.2000 - Average.House.Price.1990)/Average.House.Price.1990)*100, 2)), nudge_x = -0.1, size = 3) +
+  theme_classic() +
+  ggtitle("Least Price Change") +
+  xlab("State") + ylab("Price Difference %") +
+  labs(subtitle = "States with the lowest percentage price change between 1990 and 2000")
+bp4 <- ggplot(data = tail(Values.1990.2000, 5), aes(x = State, y = ((Average.House.Price.2000 - Average.House.Price.1990)/Average.House.Price.1990)*100)) +
+  geom_bar(stat = "identity", fill = "darkgreen", alpha = 0.7) +
+  geom_label_repel(aes(label = round(((Average.House.Price.2000 - Average.House.Price.1990)/Average.House.Price.1990)*100, 2)), nudge_x = 0.1, size = 3) +
+  theme_classic() +
+  ggtitle("Most Price Change") +
+  xlab("State") + ylab("Price Difference %") +
+  labs(subtitle = "States with the highest percentage price change between 1990 and 2000")
+grid.arrange(bp3, bp4, ncol = 2)
+```
+
+```{r, fig.height=5, fig.width=12}
+Values.1990.2000 <- 
+  Values.1990.2000 %>%
+  arrange(Population.2000 - Population.1990)
+
+bp5 <- ggplot(data = head(Values.1990.2000, 5), aes(x = State, y = ((Population.2000 - Population.1990)/Population.1990)*100)) +
+  geom_bar(stat = "identity", fill = "darkblue", alpha = 0.7) +
+  geom_label_repel(aes(label = round(((Population.2000 - Population.1990)/Population.1990)*100, 2)), nudge_x = -0.1, size = 3) +
+  theme_classic() +
+  ggtitle("Least Population Change") +
+  xlab("State") + ylab("Population Difference %") +
+  labs(subtitle = "States with the lowest percentage population change between 1990 and 2000")
+bp6 <- ggplot(data = tail(Values.1990.2000, 5), aes(x = State, y = ((Population.2000 - Population.1990)/Population.1990)*100)) +
+  geom_bar(stat = "identity", fill = "darkgreen", alpha = 0.7) +
+  geom_label_repel(aes(label = round(((Population.2000 - Population.1990)/Population.1990)*100, 2)), nudge_x = 0.1, size = 3) +
+  theme_classic() +
+  ggtitle("Most Population Change") +
+  xlab("State") + ylab("Population Difference %") +
+  labs(subtitle = "States with the highest percentage population change between 1990 and 2000")
+grid.arrange(bp5, bp6, ncol = 2)
+```
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = Values.1990.2000, aes(x = (Population.2000 - Population.1990), y = (Average.House.Price.2000 - Average.House.Price.1990), color = State)) +
+  geom_smooth(method = 'lm', formula = y~x, color = 'darkgrey', alpha = 0.4, linetype = 'dashed', linewidth = 1, se = FALSE) +
+  geom_point(alpha = 0.5) + 
+  scale_size_continuous(guide = "none") +
+  scale_color_discrete(guide = "none") +
+  geom_label_repel(aes(label = Code), size = 2, max.overlaps = 20) +
+  theme_classic() +
+  ggtitle("(1990 and 2000) Trend Between Population and House Prices") +
+  xlab("Difference in Price") + ylab("Difference in House Prices") +
+  labs(subtitle = "Scatterplot explaining the relationship between the difference in population and the difference in house prices between 1990 and 2000")
+```
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = Values.1990.2000, aes(x = (Population.2000 - Population.1990), y = (Average.House.Price.2000 - Average.House.Price.1990), color = State)) +
+  geom_smooth(method = 'lm', formula = y~x, color = 'darkgrey', alpha = 0.4, linetype = 'dashed', linewidth = 1, se = FALSE) +
+  geom_point(alpha = 0.5) + 
+  scale_size_continuous(guide = "none") +
+  scale_color_discrete(guide = "none") +
+  geom_label_repel(aes(label = Code), size = 2, max.overlaps = 20) +
+  facet_wrap(~Region, nrow = 2) +
+  theme_classic() +
+  ggtitle("(1990 and 2000) Trend Between Population and House Prices") +
+  xlab("Difference in Price") + ylab("Difference in House Prices") +
+  labs(subtitle = "Scatterplot explaining the relationship between the difference in population and the difference in house prices between 1990 and 2000 faceted by region") +
+  theme(strip.text = element_text(size = 8), panel.spacing = unit(1, "lines"))
+```
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = Values.1990.2000, aes(x = log((Population.2000 / Population.1990)), y = log((Average.House.Price.2000 / Average.House.Price.1990)), color = State)) +
+  geom_hline(yintercept = 0, color = 'black', linetype = 'dotted', linewidth = 0.4) +
+  geom_vline(xintercept = 0, color = 'black', linetype = 'dotted', linewidth = 0.4) +
+  geom_smooth(method = 'lm', formula = y~x, color = 'darkgrey', alpha = 0.4, linetype = 'dashed', linewidth = 1, se = FALSE) +
+  geom_point(alpha = 0.5) + 
+  scale_size_continuous(guide = "none") +
+  scale_color_discrete(guide = "none") +
+  geom_label_repel(aes(label = Code), size = 2, max.overlaps = 20) +
+  theme_classic() +
+  ggtitle("(1990 and 2000) Trend Between Population and House Prices") +
+  xlab("Proportion of Population (log scale)") + ylab("Proportion of House Prices (log scale)") +
+  labs(subtitle = "Scatterplot explaining the relationship between the ratio of population and the ratio of house prices between 1990 and 2000")
+```
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = Values.1990.2000, aes(x = log((Population.2000 / Population.1990)), y = log((Average.House.Price.2000 / Average.House.Price.1990)), color = State)) +
+  geom_hline(yintercept = 0, color = 'black', linetype = 'dotted', linewidth = 0.4) +
+  geom_vline(xintercept = 0, color = 'black', linetype = 'dotted', linewidth = 0.4) +
+  geom_smooth(method = 'lm', formula = y~x, color = 'darkgrey', alpha = 0.4, linetype = 'dashed', linewidth = 1, se = FALSE) +
+  geom_point(alpha = 0.5) + 
+  scale_size_continuous(guide = "none") +
+  scale_color_discrete(guide = "none") +
+  geom_label_repel(aes(label = Code), size = 2, max.overlaps = 50) +
+  facet_wrap(~Region, nrow = 2) +
+  theme_classic() +
+  ggtitle("(1990 and 2000) Trend Between Population and House Prices") +
+  xlab("Proportion of Population (log scale)") + ylab("Proportion of House Prices (log scale)") +
+  labs(subtitle = "Scatterplot explaining the relationship between the ratio of population and the ratio of house prices between 1990 and 2000 faceted by region") +
+  theme(strip.text = element_text(size = 8), panel.spacing = unit(1, "lines"))
+```
+
+### Year Range - 2000 to 2010
+
+```{r}
+a2 <- 
+  rbind(
+    (grouped_year %>%
+    filter(Year == 2000) %>%
+    inner_join(Census.2000, by = join_by(State == State))),
+    (grouped_year %>%
+    filter(Year == 2010) %>%
+    inner_join(Census.2010, by = join_by(State == State)))) %>%
+    select(-Average.House.Prices) %>%
+    pivot_wider(names_from = Year, values_from = Population) %>%
+    dplyr::rename("Population.2000" = "2000", "Population.2010" = "2010")
+b2 <-
+  rbind(
+    (grouped_year %>%
+    filter(Year == 2000) %>%
+    inner_join(Census.2010, by = join_by(State == State))),
+    (grouped_year %>%
+    filter(Year == 2010) %>%
+    inner_join(Census.2010, by = join_by(State == State)))) %>%
+    select(-Population) %>%
+    pivot_wider(names_from = Year, values_from = Average.House.Prices) %>%
+    dplyr::rename("Average.House.Price.2000" = "2000", "Average.House.Price.2010" = "2010")
+Values.2000.2010 <-
+  a2 %>% 
+  inner_join(b2, by = join_by(State)) %>% 
+  select(-Code.y, -Region.y) %>%
+  dplyr::rename("Code" = "Code.x", "Region" = "Region.x") %>%
+  filter(State != "District of Columbia")
+Values.2000.2010
+```
+
+```{r, fig.height=5, fig.width=12}
+Values.2000.2010 <- 
+  Values.2000.2010 %>%
+  arrange(Average.House.Price.2010 - Average.House.Price.2000)
+
+bp7 <- ggplot(data = head(Values.2000.2010, 5), aes(x = State, y = ((Average.House.Price.2010 - Average.House.Price.2000)/Average.House.Price.2000)*100)) +
+  geom_bar(stat = "identity", fill = "darkblue", alpha = 0.7) +
+  geom_label_repel(aes(label = round(((Average.House.Price.2010 - Average.House.Price.2000)/Average.House.Price.2000)*100, 2)), nudge_x = -0.1, size = 3) +
+  theme_classic() +
+  ggtitle("Least Price Change") +
+  xlab("State") + ylab("Price Difference %") +
+  labs(subtitle = "States with the lowest percentage price change between 2000 and 2010")
+bp8 <- ggplot(data = tail(Values.2000.2010, 5), aes(x = State, y = ((Average.House.Price.2010 - Average.House.Price.2000)/Average.House.Price.2000)*100)) +
+  geom_bar(stat = "identity", fill = "darkgreen", alpha = 0.7) +
+  geom_label_repel(aes(label = round(((Average.House.Price.2010 - Average.House.Price.2000)/Average.House.Price.2000)*100, 2)), nudge_x = 0.1, size = 3) +
+  theme_classic() +
+  ggtitle("Most Price Change") +
+  xlab("State") + ylab("Price Difference %") +
+  labs(subtitle = "States with the highest percentage price change between 2000 and 2010")
+grid.arrange(bp7, bp8, ncol = 2)
+```
+
+```{r, fig.height=5, fig.width=12}
+Values.2000.2010 <- 
+  Values.2000.2010 %>%
+  arrange(Population.2010 - Population.2000)
+
+bp9 <- ggplot(data = head(Values.2000.2010, 5), aes(x = State, y = ((Population.2010 - Population.2000)/Population.2000)*100)) +
+  geom_bar(stat = "identity", fill = "darkblue", alpha = 0.7) +
+  geom_label_repel(aes(label = round(((Population.2010 - Population.2000)/Population.2000)*100, 2)), nudge_x = -0.1, size = 3) +
+  theme_classic() +
+  ggtitle("Least Population Change") +
+  xlab("State") + ylab("Price Difference %") +
+  labs(subtitle = "States with the lowest percentage population change between 2000 and 2010")
+bp10 <- ggplot(data = tail(Values.2000.2010, 5), aes(x = State, y = ((Population.2010 - Population.2000)/Population.2000)*100)) +
+  geom_bar(stat = "identity", fill = "darkgreen", alpha = 0.7) +
+  geom_label_repel(aes(label = round(((Population.2010 - Population.2000)/Population.2000)*100, 2)), nudge_x = 0.1, size = 3) +
+  theme_classic() +
+  ggtitle("Most Population Change") +
+  xlab("State") + ylab("Price Difference %") +
+  labs(subtitle = "States with the highest percentage population change between 2000 and 2010")
+grid.arrange(bp9, bp10, ncol = 2)
+```
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = Values.2000.2010, aes(x = (Population.2010 - Population.2000), y = (Average.House.Price.2010 - Average.House.Price.2000), color = State)) +
+  geom_smooth(method = 'lm', formula = y~x, color = 'darkgrey', alpha = 0.4, linetype = 'dashed', linewidth = 1, se = FALSE) +
+  geom_point(alpha = 0.5) + 
+  scale_size_continuous(guide = "none") +
+  scale_color_discrete(guide = "none") +
+  geom_label_repel(aes(label = Code), size = 2, max.overlaps = 20) +
+  theme_classic() +
+  ggtitle("(2000 and 2010) Trend Between Population and House Prices") +
+  xlab("Difference in Population") + ylab("Difference in House Prices") +
+  labs(subtitle = "Scatterplot explaining the relationship between the difference in population and the difference in house prices between 2000 and 2010")
+```
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = Values.2000.2010, aes(x = (Population.2010 - Population.2000), y = (Average.House.Price.2010 - Average.House.Price.2000), color = State)) +
+  geom_smooth(method = 'lm', formula = y~x, color = 'darkgrey', alpha = 0.4, linetype = 'dashed', linewidth = 1, se = FALSE) +
+  geom_point(alpha = 0.5) + 
+  scale_size_continuous(guide = "none") +
+  scale_color_discrete(guide = "none") +
+  geom_label_repel(aes(label = Code), size = 2, max.overlaps = 20) +
+  facet_wrap(~Region, nrow = 2) +
+  theme_classic() +
+  ggtitle("(2000 and 2010) Trend Between Population and House Prices") +
+  xlab("Difference in Population") + ylab("Difference in House Prices") +
+  labs(subtitle = "Scatterplot explaining the relationship between the difference in population and the difference in house prices between 2000 and 2010 faceted by region") +
+  theme(strip.text = element_text(size = 8), panel.spacing = unit(1, "lines"))
+```
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = Values.2000.2010, aes(x = log((Population.2010 / Population.2000)), y = log((Average.House.Price.2010 / Average.House.Price.2000)), color = State)) +
+  geom_hline(yintercept = 0, color = 'black', linetype = 'dotted', linewidth = 0.4) +
+  geom_vline(xintercept = 0, color = 'black', linetype = 'dotted', linewidth = 0.4) +
+  geom_smooth(method = 'lm', formula = y~x, color = 'darkgrey', alpha = 0.4, linetype = 'dashed', linewidth = 1, se = FALSE) +
+  geom_point(alpha = 0.5) + 
+  scale_size_continuous(guide = "none") +
+  scale_color_discrete(guide = "none") +
+  geom_label_repel(aes(label = Code), size = 2, max.overlaps = 20) +
+  theme_classic() +
+  ggtitle("(2000 and 2010) Trend Between Population and House Prices") +
+  xlab("Proportion of Population (log scale)") + ylab("Proportion of House Prices (log scale)") +
+  labs(subtitle = "Scatterplot explaining the relationship between the ratio of population and the ratio of house prices between 2000 and 2010")
+```
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = Values.2000.2010, aes(x = log((Population.2010 / Population.2000)), y = log((Average.House.Price.2010 / Average.House.Price.2000)), color = State)) +
+  geom_hline(yintercept = 0, color = 'black', linetype = 'dotted', linewidth = 0.4) +
+  geom_vline(xintercept = 0, color = 'black', linetype = 'dotted', linewidth = 0.4) +
+  geom_smooth(method = 'lm', formula = y~x, color = 'darkgrey', alpha = 0.4, linetype = 'dashed', linewidth = 1, se = FALSE) +
+  geom_point(alpha = 0.5) + 
+  scale_size_continuous(guide = "none") +
+  scale_color_discrete(guide = "none") +
+  geom_label_repel(aes(label = Code), size = 2, max.overlaps = 20) +
+  facet_wrap(~Region, nrow = 2) +
+  theme_classic() +
+  ggtitle("(2000 and 2010) Trend Between Population and House Prices") +
+  xlab("Proportion of Population (log scale)") + ylab("Proportion of House Prices (log scale)") +
+  labs(subtitle = "Scatterplot explaining the relationship between the ratio of population and the ratio of house prices between 2000 and 2010 faceted by region") +
+  theme(strip.text = element_text(size = 8), panel.spacing = unit(1, "lines"))
+```
+
+### Year Range - 2010 to 2019
+
+```{r}
+a3 <- 
+  rbind(
+    (grouped_year %>%
+    filter(Year == 2010) %>%
+    inner_join(Census.2010, by = join_by(State == State))),
+    (grouped_year %>%
+    filter(Year == 2019) %>%
+    inner_join(Census.2019, by = join_by(State == State)))) %>%
+    select(-Average.House.Prices) %>%
+    pivot_wider(names_from = Year, values_from = Population) %>%
+    dplyr::rename("Population.2010" = "2010", "Population.2019" = "2019")
+b3 <-
+  rbind(
+    (grouped_year %>%
+    filter(Year == 2010) %>%
+    inner_join(Census.2010, by = join_by(State == State))),
+    (grouped_year %>%
+    filter(Year == 2019) %>%
+    inner_join(Census.2019, by = join_by(State == State)))) %>%
+    select(-Population) %>%
+    pivot_wider(names_from = Year, values_from = Average.House.Prices) %>%
+    dplyr::rename("Average.House.Price.2010" = "2010", "Average.House.Price.2019" = "2019")
+Values.2010.2019 <-
+  a3 %>% 
+  inner_join(b3, by = join_by(State)) %>% 
+  select(-Code.y, -Region.y) %>% 
+  dplyr::rename("Code" = "Code.x", "Region" = "Region.x") %>%
+  filter(State != "District of Columbia")
+Values.2010.2019
+```
+
+```{r, fig.height=5, fig.width=12}
+Values.2010.2019 <- 
+  Values.2010.2019 %>%
+  arrange(Average.House.Price.2019 - Average.House.Price.2010)
+
+bp11 <- ggplot(data = head(Values.2010.2019, 5), aes(x = State, y = ((Average.House.Price.2019 - Average.House.Price.2010)/Average.House.Price.2010)*100)) +
+  geom_bar(stat = "identity", fill = "darkblue", alpha = 0.7) +
+  geom_label_repel(aes(label = round(((Average.House.Price.2019 - Average.House.Price.2010)/Average.House.Price.2010)*100, 2)), nudge_x = -0.1, size = 3) +
+  theme_classic() +
+  ggtitle("Least Price Change") +
+  xlab("State") + ylab("Price Difference %") +
+  labs(subtitle = "States with the lowest percentage price change between 2010 and 2019")
+bp12 <- ggplot(data = tail(Values.2010.2019, 5), aes(x = State, y = ((Average.House.Price.2019 - Average.House.Price.2010)/Average.House.Price.2010)*100)) +
+  geom_bar(stat = "identity", fill = "darkgreen", alpha = 0.7) +
+  geom_label_repel(aes(label = round(((Average.House.Price.2019 - Average.House.Price.2010)/Average.House.Price.2010)*100, 2)), nudge_x = 0.1, size = 3) +
+  theme_classic() +
+  ggtitle("Most Price Change") +
+  xlab("State") + ylab("Price Difference %") +
+  labs(subtitle = "States with the highest percentage price change between 2010 and 2019")
+grid.arrange(bp11, bp12, ncol = 2)
+```
+
+```{r, fig.height=5, fig.width=12}
+Values.2010.2019 <- 
+  Values.2010.2019 %>%
+  arrange(Population.2019 - Population.2010)
+
+bp13 <- ggplot(data = head(Values.2010.2019, 5), aes(x = State, y = ((Population.2019 - Population.2010)/Population.2010)*100)) +
+  geom_bar(stat = "identity", fill = "darkblue", alpha = 0.7) +
+  geom_label_repel(aes(label = round(((Population.2019 - Population.2010)/Population.2010)*100, 2)), nudge_x = -0.1, size = 3) +
+  theme_classic() +
+  ggtitle("Least Population Change") +
+  xlab("State") + ylab("Price Difference %") +
+  labs(subtitle = "States with the highest percentage population change between 2010 and 2019")
+bp14 <- ggplot(data = tail(Values.2010.2019, 5), aes(x = State, y = ((Population.2019 - Population.2010)/Population.2010)*100)) +
+  geom_bar(stat = "identity", fill = "darkgreen", alpha = 0.7) +
+  geom_label_repel(aes(label = round(((Population.2019 - Population.2010)/Population.2010)*100, 2)), nudge_x = 0.1, size = 3) +
+  theme_classic() +
+  ggtitle("Most Population Change") +
+  xlab("State") + ylab("Price Difference %") +
+  labs(subtitle = "States with the highest percentage population change between 2010 and 2019")
+grid.arrange(bp13, bp14, ncol = 2)
+```
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = Values.2010.2019, aes(x = (Population.2019 - Population.2010), y = (Average.House.Price.2019 - Average.House.Price.2010), color = State)) +
+  geom_smooth(method = 'lm', formula = y~x, color = 'darkgrey', alpha = 0.4, linetype = 'dashed', linewidth = 1, se = FALSE) +
+  geom_point(alpha = 0.5) + 
+  scale_size_continuous(guide = "none") +
+  scale_color_discrete(guide = "none") +
+  geom_label_repel(aes(label = Code), size = 2, max.overlaps = 20) +
+  theme_classic() +
+  ggtitle("(2010 and 2019) Trend Between Population and House Prices") +
+  xlab("Difference in Population") + ylab("Difference in House Prices") +
+  labs(subtitle = "Scatterplot explaining the relationship between the difference in population and the difference in house prices between 2010 and 2019")
+```
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = Values.2010.2019, aes(x = (Population.2019 - Population.2010), y = (Average.House.Price.2019 - Average.House.Price.2010), color = State)) +
+  geom_smooth(method = 'lm', formula = y~x, color = 'darkgrey', alpha = 0.4, linetype = 'dashed', linewidth = 1, se = FALSE) +
+  geom_point(alpha = 0.5) + 
+  scale_size_continuous(guide = "none") +
+  scale_color_discrete(guide = "none") +
+  geom_label_repel(aes(label = Code), size = 2, max.overlaps = 20) +
+  facet_wrap(~Region, nrow = 2) +
+  theme_classic() +
+  ggtitle("(2010 and 2019) Trend Between Population and House Prices") +
+  xlab("Difference in Population") + ylab("Difference in House Prices") +
+  labs(subtitle = "Scatterplot explaining the relationship between the difference in population and the difference in house prices between 2010 and 2019 faceted by region") +
+  theme(strip.text = element_text(size = 8), panel.spacing = unit(1, "lines"))
+```
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = Values.2010.2019, aes(x = log((Population.2019 / Population.2010)), y = log((Average.House.Price.2019 / Average.House.Price.2010)), color = State)) +
+  geom_hline(yintercept = 0, color = 'black', linetype = 'dotted', linewidth = 0.4) +
+  geom_vline(xintercept = 0, color = 'black', linetype = 'dotted', linewidth = 0.4) +
+  geom_smooth(method = 'lm', formula = y~x, color = 'darkgrey', alpha = 0.4, linetype = 'dashed', linewidth = 1, se = FALSE) +
+  geom_point(alpha = 0.5) + 
+  scale_size_continuous(guide = "none") +
+  scale_color_discrete(guide = "none") +
+  geom_label_repel(aes(label = Code), size = 2, max.overlaps = 30) +
+  theme_classic() +
+  ggtitle("(2010 and 2019) Trend Between Population and House Prices") +
+  xlab("Proportion of Population (log scale)") + ylab("Proportion of House Prices (log scale)") +
+  labs(subtitle = "Scatterplot explaining the relationship between the ratio of population and the ratio of house prices between 2010 and 2019")
+```
+
+```{r, fig.height=6, fig.width=12}
+ggplot(data = Values.2010.2019, aes(x = log((Population.2019 / Population.2010)), y = log((Average.House.Price.2019 / Average.House.Price.2010)), color = State)) +
+  geom_hline(yintercept = 0, color = 'black', linetype = 'dotted', linewidth = 0.4) +
+  geom_vline(xintercept = 0, color = 'black', linetype = 'dotted', linewidth = 0.4) +
+  geom_smooth(method = 'lm', formula = y~x, color = 'darkgrey', alpha = 0.4, linetype = 'dashed', linewidth = 1, se = FALSE) +
+  geom_point(alpha = 0.5) + 
+  scale_size_continuous(guide = "none") +
+  scale_color_discrete(guide = "none") +
+  geom_label_repel(aes(label = Code), size = 2, max.overlaps = 30) +
+  facet_wrap(~Region, nrow = 2) +
+  theme_classic() +
+  ggtitle("(2010 and 2019) Trend Between Population and House Prices") +
+  xlab("Proportion of Population (log scale)") + ylab("Proportion of House Prices (log scale)") +
+  labs(subtitle = "Scatterplot explaining the relationship between the ratio of population and the ratio of house prices between 2010 and 2019 faceted by region") +
+  theme(strip.text = element_text(size = 8), panel.spacing = unit(1, "lines"))
+```
